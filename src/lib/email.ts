@@ -1,4 +1,4 @@
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes, randomInt, createHash } from "node:crypto";
 import { Resend } from "resend";
 import { config } from "../config.js";
 
@@ -10,13 +10,23 @@ export function makeEmailVerificationToken(): { rawToken: string; hashedToken: s
   return { rawToken, hashedToken };
 }
 
+// randomInt is CSPRNG-backed. Math.random() is predictable from prior outputs, which for
+// a code that gates password reset would allow account takeover.
 export function makeOtpCode(): { rawCode: string; hashedCode: string } {
-  const rawCode = String(Math.floor(100000 + Math.random() * 900000));
+  const rawCode = String(randomInt(0, 1_000_000)).padStart(6, "0");
   const hashedCode = createHash("sha256").update(rawCode).digest("hex");
   return { rawCode, hashedCode };
 }
 
-export async function sendVerifyEmail(email: string, verificationCode: string): Promise<void> {
+function codeEmailHtml(intro: string, code: string, appName: string): string {
+  return [
+    `<p>${intro}</p>`,
+    `<p style="font-size:28px;font-weight:700;letter-spacing:0.18em;">${code}</p>`,
+    `<p>Enter this code in ${appName} within 30 minutes.</p>`,
+  ].join("");
+}
+
+export async function sendVerifyEmail(email: string, verificationCode: string, appName: string): Promise<void> {
   if (!resend || !config.resendFrom) {
     console.warn("[auth-service] Resend not configured. Skipping verify email for", email);
     return;
@@ -25,12 +35,12 @@ export async function sendVerifyEmail(email: string, verificationCode: string): 
   await resend.emails.send({
     from: config.resendFrom,
     to: email,
-    subject: "Verify your account",
-    html: `<p>Your verification code is:</p><p style=\"font-size:28px;font-weight:700;letter-spacing:0.18em;\">${verificationCode}</p><p>Enter this code in the Media Viewer app within 30 minutes.</p>`,
+    subject: `Verify your ${appName} account`,
+    html: codeEmailHtml("Your verification code is:", verificationCode, appName),
   });
 }
 
-export async function sendPasswordResetEmail(email: string, resetCode: string): Promise<void> {
+export async function sendPasswordResetEmail(email: string, resetCode: string, appName: string): Promise<void> {
   if (!resend || !config.resendFrom) {
     console.warn("[auth-service] Resend not configured. Skipping password reset email for", email);
     return;
@@ -39,7 +49,7 @@ export async function sendPasswordResetEmail(email: string, resetCode: string): 
   await resend.emails.send({
     from: config.resendFrom,
     to: email,
-    subject: "Reset your password",
-    html: `<p>Your password reset code is:</p><p style=\"font-size:28px;font-weight:700;letter-spacing:0.18em;\">${resetCode}</p><p>Enter this code in the Media Viewer app within 30 minutes.</p>`,
+    subject: `Reset your ${appName} password`,
+    html: codeEmailHtml("Your password reset code is:", resetCode, appName),
   });
 }

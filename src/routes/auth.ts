@@ -1,20 +1,16 @@
 import { Router } from "express";
 import { createHash } from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
-import { createUserEntryStatusRouter } from "@data/user-db";
 
-import { config } from "../config.js";
-import type { UserDoc } from "../models/User.js";
-import type { TenantRequest } from "../middleware/tenant.js";
+import { config, type SameSite } from "../config.js";
+import { createUserEntryStatusRouter } from "../features/entry-status.js";
+import { getStore, getTenantApp } from "../middleware/tenant.js";
+import type { UserRecord } from "../store/types.js";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { makeOtpCode, sendPasswordResetEmail, sendVerifyEmail } from "../lib/email.js";
 import { signAuthToken, verifyAuthToken } from "../lib/jwt.js";
 
 export const authRouter = Router();
-
-function models(req: Request) {
-  return (req as TenantRequest).models;
-}
 
 type AuthUserRequest = Request & {
   authUserId?: string;
@@ -26,7 +22,7 @@ function getUserDisplayName(user: { username?: string; email: string }): string 
   return user.username?.trim() || user.email;
 }
 
-function toSessionPayload(user: UserDoc) {
+function toSessionPayload(user: UserRecord) {
   return {
     authenticated: true,
     email: user.email,
@@ -51,7 +47,7 @@ function hashOtpCode(rawCode: string): string {
 
 async function getVerificationTarget(req: AuthUserRequest): Promise<string | null> {
   if (req.authUserId) {
-    const user = await models(req).User.findById(req.authUserId);
+    const user = await getStore(req).users.findById(req.authUserId);
     return user?.email ?? null;
   }
 
@@ -59,36 +55,61 @@ async function getVerificationTarget(req: AuthUserRequest): Promise<string | nul
   return email.includes("@") ? email : null;
 }
 
-function setAuthCookie(res: Response, token: string) {
+function setAuthCookie(res: Response, token: string, sameSite: SameSite) {
   res.cookie(config.cookieName, token, {
     httpOnly: true,
     secure: config.cookieSecure,
-    sameSite: "lax",
+    sameSite,
     path: "/",
     maxAge: 1000 * 60 * 60 * 24 * 7,
   });
 }
 
-function clearAuthCookie(res: Response) {
+function clearAuthCookie(req: Request, res: Response) {
   res.clearCookie(config.cookieName, {
     httpOnly: true,
     secure: config.cookieSecure,
-    sameSite: "lax",
+    sameSite: getTenantApp(req).cookieSameSite,
     path: "/",
   });
 }
 
+// Browser apps get an HttpOnly cookie. Native shells (Electron) have no usable cross-site
+// cookie jar, so they receive the token in the body and send it as a Bearer header.
+function issueSession(req: Request, res: Response, user: UserRecord): { token?: string } {
+  const app = getTenantApp(req);
+  const token = signAuthToken({
+    sub: user.id,
+    email: user.email,
+    tokenVersion: user.authVersion,
+    appId: app.appId,
+  });
+
+  if (app.tokenMode === "bearer") return { token };
+
+  setAuthCookie(res, token, app.cookieSameSite);
+  return {};
+}
+
+function readToken(req: Request): string | undefined {
+  const header = req.header("authorization");
+  if (header?.toLowerCase().startsWith("bearer ")) {
+    return header.slice(7).trim() || undefined;
+  }
+  return req.cookies?.[config.cookieName] as string | undefined;
+}
+
 async function authGuard(req: Request, res: Response, next: NextFunction) {
-  const token = req.cookies?.[config.cookieName] as string | undefined;
+  const token = readToken(req);
   if (!token) return res.status(401).json({ ok: false, error: "Unauthorized" });
 
   try {
-    const payload = verifyAuthToken(token);
-    const user = await models(req).User.findById(payload.sub);
+    const payload = verifyAuthToken(token, getTenantApp(req).appId);
+    const user = await getStore(req).users.findById(payload.sub);
     if (!user) return res.status(401).json({ ok: false, error: "Unauthorized" });
     if (user.authVersion !== payload.tokenVersion) return res.status(401).json({ ok: false, error: "Unauthorized" });
 
-    (req as AuthUserRequest).authUserId = String(user._id);
+    (req as AuthUserRequest).authUserId = user.id;
     (req as AuthUserRequest).authEmail = user.email;
     (req as AuthUserRequest).authTokenVersion = user.authVersion;
     return next();
@@ -108,11 +129,11 @@ authRouter.post("/signup", async (req, res) => {
   }
   if (username && username.length < 3) return res.status(400).json({ ok: false, error: "Username must be at least 3 chars" });
 
-  const existing = await models(req).User.findOne({ email });
+  const existing = await getStore(req).users.findByEmail(email);
   if (existing) return res.status(409).json({ ok: false, error: "Email already in use" });
 
   if (username) {
-    const usernameTaken = await models(req).User.findOne({ username });
+    const usernameTaken = await getStore(req).users.findByUsername(username);
     if (usernameTaken) return res.status(409).json({ ok: false, error: "Username already in use" });
   }
 
@@ -120,7 +141,7 @@ authRouter.post("/signup", async (req, res) => {
   const { rawCode, hashedCode } = makeOtpCode();
   const verifyOtpExpiresAt = new Date(Date.now() + 1000 * 60 * 30);
 
-  const user = await models(req).User.create({
+  const user = await getStore(req).users.create({
     email,
     username: username || undefined,
     passwordHash,
@@ -129,7 +150,7 @@ authRouter.post("/signup", async (req, res) => {
     verifyOtpExpiresAt,
   });
 
-  await sendVerifyEmail(email, rawCode);
+  await sendVerifyEmail(email, rawCode, getTenantApp(req).displayName);
 
   return res.json({ ok: true, user: { email: user.email, username: getUserDisplayName(user), emailVerified: user.emailVerified } });
 });
@@ -138,7 +159,7 @@ authRouter.post("/signin", async (req, res) => {
   const email = String(req.body?.email ?? "").trim().toLowerCase();
   const password = String(req.body?.password ?? "");
 
-  const user = await models(req).User.findOne({ email });
+  const user = await getStore(req).users.findByEmail(email);
   if (!user) return res.status(401).json({ ok: false, error: "Invalid credentials" });
 
   const valid = await verifyPassword(password, user.passwordHash);
@@ -148,20 +169,23 @@ authRouter.post("/signin", async (req, res) => {
     return res.status(403).json({ ok: false, error: "Verify your email before signing in" });
   }
 
-  const token = signAuthToken({ sub: String(user._id), email: user.email, tokenVersion: user.authVersion });
-  setAuthCookie(res, token);
+  const session = issueSession(req, res, user);
 
-  return res.json({ ok: true, user: { email: user.email, username: getUserDisplayName(user), emailVerified: user.emailVerified } });
+  return res.json({
+    ok: true,
+    ...session,
+    user: { email: user.email, username: getUserDisplayName(user), emailVerified: user.emailVerified },
+  });
 });
 
-authRouter.post("/signout", async (_req, res) => {
-  clearAuthCookie(res);
+authRouter.post("/signout", async (req, res) => {
+  clearAuthCookie(req, res);
   return res.json({ ok: true });
 });
 
 authRouter.get("/session", authGuard, async (req, res) => {
-  const userId = (req as AuthUserRequest).authUserId;
-  const user = await models(req).User.findById(userId);
+  const userId = (req as AuthUserRequest).authUserId!;
+  const user = await getStore(req).users.findById(userId);
   if (!user) return res.status(401).json({ ok: false, error: "Unauthorized" });
 
   return res.json({
@@ -171,8 +195,8 @@ authRouter.get("/session", authGuard, async (req, res) => {
 });
 
 authRouter.patch("/profile", authGuard, async (req, res) => {
-  const userId = (req as AuthUserRequest).authUserId;
-  const user = await models(req).User.findById(userId);
+  const userId = (req as AuthUserRequest).authUserId!;
+  const user = await getStore(req).users.findById(userId);
   if (!user) return res.status(401).json({ ok: false, error: "Unauthorized" });
 
   const username = String(req.body?.username ?? "").trim();
@@ -181,31 +205,38 @@ authRouter.patch("/profile", authGuard, async (req, res) => {
   }
 
   if (username) {
-    const usernameTaken = await models(req).User.findOne({ username, _id: { $ne: user._id } });
+    const usernameTaken = await getStore(req).users.findByUsernameExcluding(username, user.id);
     if (usernameTaken) return res.status(409).json({ ok: false, error: "Username already in use" });
   }
 
-  user.username = username || undefined;
-  await user.save();
+  const updated = await getStore(req).users.update(user.id, { username: username || null });
+  if (!updated) return res.status(401).json({ ok: false, error: "Unauthorized" });
 
-  return res.json({ ok: true, session: toSessionPayload(user) });
+  return res.json({ ok: true, session: toSessionPayload(updated) });
 });
 
-authRouter.use("/entries", createUserEntryStatusRouter(authGuard, (req) => models(req).UserEntryStatus));
+// Domain feature, not auth: only mounted for apps that opt in via AUTH_FEATURES_<APP>.
+authRouter.use("/entries", (req, res, next) => {
+  if (!getStore(req).entryStatus) {
+    return res.status(404).json({ ok: false, error: "entry-status is not enabled for this app" });
+  }
+  return next();
+}, createUserEntryStatusRouter(authGuard, (req) => getStore(req).entryStatus!));
 
 authRouter.post("/verify/request", async (req, res) => {
   const email = await getVerificationTarget(req as AuthUserRequest);
   if (!email) return res.status(400).json({ ok: false, error: "Email required" });
 
-  const user = await models(req).User.findOne({ email });
+  const user = await getStore(req).users.findByEmail(email);
   if (!user) return res.json({ ok: true });
 
   const { rawCode, hashedCode } = makeOtpCode();
-  user.verifyOtpHash = hashedCode;
-  user.verifyOtpExpiresAt = new Date(Date.now() + 1000 * 60 * 30);
-  await user.save();
+  await getStore(req).users.update(user.id, {
+    verifyOtpHash: hashedCode,
+    verifyOtpExpiresAt: new Date(Date.now() + 1000 * 60 * 30),
+  });
 
-  await sendVerifyEmail(user.email, rawCode);
+  await sendVerifyEmail(user.email, rawCode, getTenantApp(req).displayName);
 
   return res.json({ ok: true });
 });
@@ -215,19 +246,14 @@ authRouter.post("/verify/confirm", async (req, res) => {
   const email = getBodyValue(req, "email").toLowerCase();
   if (!rawCode || !email) return res.status(400).json({ ok: false, error: "Invalid verification code" });
 
-  const hashed = hashOtpCode(rawCode);
-  const user = await models(req).User.findOne({
-    email,
-    verifyOtpHash: hashed,
-    verifyOtpExpiresAt: { $gt: new Date() },
-  });
-
+  const user = await getStore(req).users.findByOtp("verify", email, hashOtpCode(rawCode), new Date());
   if (!user) return res.status(400).json({ ok: false, error: "Invalid or expired verification code" });
 
-  user.emailVerified = true;
-  user.verifyOtpHash = undefined;
-  user.verifyOtpExpiresAt = undefined;
-  await user.save();
+  await getStore(req).users.update(user.id, {
+    emailVerified: true,
+    verifyOtpHash: null,
+    verifyOtpExpiresAt: null,
+  });
 
   return res.json({ ok: true });
 });
@@ -236,15 +262,16 @@ authRouter.post("/password-reset/request", async (req, res) => {
   const email = String(req.body?.email ?? "").trim().toLowerCase();
   if (!email.includes("@")) return res.status(400).json({ ok: false, error: "Email required" });
 
-  const user = await models(req).User.findOne({ email });
+  const user = await getStore(req).users.findByEmail(email);
   if (!user) return res.json({ ok: true });
 
   const { rawCode, hashedCode } = makeOtpCode();
-  user.resetOtpHash = hashedCode;
-  user.resetOtpExpiresAt = new Date(Date.now() + 1000 * 60 * 30);
-  await user.save();
+  await getStore(req).users.update(user.id, {
+    resetOtpHash: hashedCode,
+    resetOtpExpiresAt: new Date(Date.now() + 1000 * 60 * 30),
+  });
 
-  await sendPasswordResetEmail(user.email, rawCode);
+  await sendPasswordResetEmail(user.email, rawCode, getTenantApp(req).displayName);
 
   return res.json({ ok: true });
 });
@@ -258,50 +285,32 @@ authRouter.post("/password-reset/confirm", async (req, res) => {
     return res.status(400).json({ ok: false, error: "Invalid reset submission" });
   }
 
-  const hashed = hashOtpCode(rawCode);
-  const user = await models(req).User.findOne({
-    email,
-    resetOtpHash: hashed,
-    resetOtpExpiresAt: { $gt: new Date() },
-  });
-
+  const user = await getStore(req).users.findByOtp("reset", email, hashOtpCode(rawCode), new Date());
   if (!user) return res.status(400).json({ ok: false, error: "Invalid or expired reset code" });
 
-  user.passwordHash = await hashPassword(password);
-  user.resetOtpHash = undefined;
-  user.resetOtpExpiresAt = undefined;
-  user.authVersion += 1;
-  await user.save();
+  // Bumping authVersion invalidates every token issued before the reset.
+  await getStore(req).users.update(user.id, {
+    passwordHash: await hashPassword(password),
+    resetOtpHash: null,
+    resetOtpExpiresAt: null,
+    authVersion: user.authVersion + 1,
+  });
 
-  clearAuthCookie(res);
+  clearAuthCookie(req, res);
   return res.json({ ok: true });
 });
 
 authRouter.get("/progress/:appId/blob", authGuard, async (req, res) => {
-  const userId = (req as Request & { authUserId: string }).authUserId;
+  const userId = (req as AuthUserRequest).authUserId!;
   const appId = String(req.params.appId ?? "").trim();
   if (!appId) return res.status(400).json({ ok: false, error: "appId required" });
 
-  const row = await models(req).UserAppBlob.findOne({ userId, appId });
-  if (!row) {
-    return res.json({ ok: true, blob: null });
-  }
-
-  return res.json({
-    ok: true,
-    blob: {
-      encryptionSalt: row.encryptionSalt,
-      blobIv: row.blobIv,
-      blobTag: row.blobTag,
-      blobCiphertext: row.blobCiphertext,
-      blobVersion: row.blobVersion,
-      updatedAt: row.updatedAt,
-    },
-  });
+  const blob = await getStore(req).blobs.get(userId, appId);
+  return res.json({ ok: true, blob });
 });
 
 authRouter.put("/progress/:appId/blob", authGuard, async (req, res) => {
-  const userId = (req as Request & { authUserId: string }).authUserId;
+  const userId = (req as AuthUserRequest).authUserId!;
   const appId = String(req.params.appId ?? "").trim();
   if (!appId) return res.status(400).json({ ok: false, error: "appId required" });
 
@@ -315,26 +324,28 @@ authRouter.put("/progress/:appId/blob", authGuard, async (req, res) => {
     return res.status(400).json({ ok: false, error: "Invalid blob payload" });
   }
 
-  await models(req).UserAppBlob.findOneAndUpdate(
-    { userId, appId },
-    { encryptionSalt, blobIv, blobTag, blobCiphertext, blobVersion },
-    { upsert: true, new: true, setDefaultsOnInsert: true },
-  );
+  await getStore(req).blobs.put(userId, appId, {
+    encryptionSalt,
+    blobIv,
+    blobTag,
+    blobCiphertext,
+    blobVersion,
+  });
 
   return res.json({ ok: true });
 });
 
 authRouter.get("/settings/:appId/content-root", authGuard, async (req, res) => {
-  const userId = (req as Request & { authUserId: string }).authUserId;
+  const userId = (req as AuthUserRequest).authUserId!;
   const appId = String(req.params.appId ?? "").trim();
   if (!appId) return res.status(400).json({ ok: false, error: "appId required" });
 
-  const row = await models(req).UserAppSettings.findOne({ userId, appId });
-  return res.json({ ok: true, contentRoot: row?.contentRoot ?? null });
+  const contentRoot = await getStore(req).settings.getContentRoot(userId, appId);
+  return res.json({ ok: true, contentRoot });
 });
 
 authRouter.put("/settings/:appId/content-root", authGuard, async (req, res) => {
-  const userId = (req as Request & { authUserId: string }).authUserId;
+  const userId = (req as AuthUserRequest).authUserId!;
   const appId = String(req.params.appId ?? "").trim();
   if (!appId) return res.status(400).json({ ok: false, error: "appId required" });
 
@@ -345,11 +356,7 @@ authRouter.put("/settings/:appId/content-root", authGuard, async (req, res) => {
 
   const contentRoot = typeof raw === "string" && raw.trim() ? raw.trim() : null;
 
-  await models(req).UserAppSettings.findOneAndUpdate(
-    { userId, appId },
-    { contentRoot },
-    { upsert: true, new: true, setDefaultsOnInsert: true },
-  );
+  await getStore(req).settings.setContentRoot(userId, appId, contentRoot);
 
   return res.json({ ok: true, contentRoot });
 });
