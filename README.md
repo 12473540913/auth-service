@@ -76,7 +76,17 @@ by changing a header. Run dev and prod as two Cloud Run services:
 | Stage | Host |
 | --- | --- |
 | Production | `auth.lnks.info` |
-| Development | `auth-dev.lnks.info` |
+| Development, active now | `auth-dev-46917854791.us-central1.run.app` |
+| Development, later custom domain | `auth-dev.lnks.info` |
+
+Until the custom domain mapping is complete, dev clients should use:
+
+```txt
+https://auth-dev-46917854791.us-central1.run.app
+```
+
+Keep `https://auth-dev.lnks.info` commented out in client config for now; it is the long-term
+dev host, but not the currently working endpoint.
 
 ### Cookies and SameSite
 
@@ -88,12 +98,18 @@ requests are *same-site* and `lax` is sufficient — which also keeps CSRF prote
 `none` gives up. Only an app served from an unrelated domain needs `none`, and browsers
 reject `SameSite=None` unless the cookie is also `Secure`.
 
+While development clients point at the default Cloud Run `run.app` host, browser apps are
+cross-site and need `AUTH_COOKIE_SAMESITE_<APP>=none`. Switch those browser apps back to
+`lax` after their auth base URL moves to the `lnks.info` custom domain.
+
 Native clients skip cookies entirely, so this setting does not apply to them.
 
 ### Native clients (Electron)
 
 An Electron app has no usable cross-site cookie jar, so `spice` uses `bearer` mode:
 
+- Dev auth base URL for UI end-to-end testing: `https://auth-dev-46917854791.us-central1.run.app`.
+- Keep the pending custom dev host, `https://auth-dev.lnks.info`, commented out until domain mapping is done.
 - `POST /auth/signin` returns `{ token }` in the response body.
 - Store it with Electron's `safeStorage`, not `localStorage`.
 - Send it as `Authorization: Bearer <token>` alongside `X-App-Id: spice`.
@@ -138,8 +154,12 @@ gcloud beta run domain-mappings create \
 ```
 
 Then add the DNS records the command prints. Deploy the dev service the same way under
-`auth-dev.lnks.info`. Domain mappings are unavailable in some regions; a global external
-HTTPS load balancer with a serverless NEG is the fallback.
+`auth-dev.lnks.info`. Until that mapping is finished, leave custom-domain client config
+commented out and point dev clients at the default Cloud Run URL:
+`https://auth-dev-46917854791.us-central1.run.app`.
+
+Domain mappings are unavailable in some regions; a global external HTTPS load balancer
+with a serverless NEG is the fallback.
 
 ## Roadmap
 
