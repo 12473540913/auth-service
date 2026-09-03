@@ -57,7 +57,7 @@ Apps are config-only; adding one needs no code change. For an app id `spice`:
 | Variable | Purpose |
 | --- | --- |
 | `AUTH_APP_IDS` | Allowlist of accepted `X-App-Id` values. An id not listed here is rejected. |
-| `ATLAS_URI_SPICE_<ENV>` | Tenant connection string. `NEON_URI_`, `DATABASE_URI_` and `MONGODB_URI_` prefixes are also accepted. |
+| `ATLAS_URI_SPICE` | Tenant connection string. `NEON_URI_`, `DATABASE_URI_` and `MONGODB_URI_` prefixes are also accepted. |
 | `AUTH_ORIGINS_SPICE` | Comma-separated browser origins allowed by CORS. |
 | `AUTH_TOKEN_MODE_SPICE` | `cookie` for web apps, `bearer` for native clients. |
 | `AUTH_COOKIE_SAMESITE_SPICE` | Per-app cookie `SameSite`. Defaults to `lax`. |

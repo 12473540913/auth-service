@@ -68,15 +68,12 @@ const defaultSameSite = (process.env.AUTH_COOKIE_SAMESITE ?? "lax") as SameSite;
 // postgres URL in an ATLAS_URI_* variable still resolves to the postgres driver.
 const URI_PREFIXES = ["ATLAS_URI", "NEON_URI", "DATABASE_URI", "MONGODB_URI"];
 
-// Env-scoped names win over unscoped ones.
+// In Cloud Run each binding can be env-neutral and mapped to a DEV or PROD secret by the
+// deployment configuration, so the app remains environment-agnostic.
 function resolveDatabaseUri(appId: string): string {
   const key = envKey(appId);
-  const env = envKey(deployEnv);
 
-  const candidates = [
-    ...URI_PREFIXES.map((prefix) => `${prefix}_${key}_${env}`),
-    ...URI_PREFIXES.map((prefix) => `${prefix}_${key}`),
-  ];
+  const candidates = URI_PREFIXES.map((prefix) => `${prefix}_${key}`);
 
   for (const name of candidates) {
     const value = process.env[name]?.trim();
@@ -85,7 +82,7 @@ function resolveDatabaseUri(appId: string): string {
 
   throw new Error(
     `App "${appId}" is registered in AUTH_APP_IDS but has no database URI. ` +
-      `Set ATLAS_URI_${key}_${env} or NEON_URI_${key}_${env}.`,
+      `Set ATLAS_URI_${key} or NEON_URI_${key}.`,
   );
 }
 
