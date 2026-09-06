@@ -7,6 +7,8 @@ export type UserRecord = {
   id: string;
   email: string;
   username?: string;
+  /** Plain YYYY-MM-DD, generic across every app rather than a per-app profile field. */
+  birthDate?: string;
   passwordHash: string;
   emailVerified: boolean;
   verifyOtpHash?: string;
@@ -30,6 +32,7 @@ export type NewUser = {
 // Explicit nulls clear a field; undefined leaves it untouched.
 export type UserPatch = {
   username?: string | null;
+  birthDate?: string | null;
   passwordHash?: string;
   emailVerified?: boolean;
   verifyOtpHash?: string | null;
@@ -51,6 +54,8 @@ export interface UserStore {
   findByOtp(kind: OtpKind, email: string, otpHash: string, now: Date): Promise<UserRecord | null>;
   create(user: NewUser): Promise<UserRecord>;
   update(id: string, patch: UserPatch): Promise<UserRecord | null>;
+  /** Cascades any per-app blobs/settings for this user. */
+  deleteUser(id: string): Promise<void>;
 }
 
 export type AppBlob = {

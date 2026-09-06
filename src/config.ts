@@ -53,6 +53,8 @@ export type AppConfig = {
   databaseUri: string;
   origins: string[];
   cookieSameSite: SameSite;
+  /** Unset means "host-only" (cookie visible only to the exact host that set it). */
+  cookieDomain?: string;
   features: ReadonlySet<AppFeature>;
 };
 
@@ -84,6 +86,13 @@ function resolveDatabaseUri(appId: string): string {
     `App "${appId}" is registered in AUTH_APP_IDS but has no database URI. ` +
       `Set ATLAS_URI_${key} or NEON_URI_${key}.`,
   );
+}
+
+// Host-only by default. An app that wants its session shared with other *.lnks.info
+// subdomains (e.g. a service API on a different subdomain than its web frontend) sets
+// this to a parent domain like ".lnks.info".
+function resolveCookieDomain(appId: string): string | undefined {
+  return process.env[`AUTH_COOKIE_DOMAIN_${envKey(appId)}`]?.trim() || undefined;
 }
 
 function resolveSameSite(appId: string): SameSite {
@@ -140,6 +149,7 @@ function buildApp(appId: string): AppConfig {
     databaseUri: mongoUri,
     origins: list(`AUTH_ORIGINS_${key}`),
     cookieSameSite: resolveSameSite(appId),
+    cookieDomain: resolveCookieDomain(appId),
     features,
   };
 }
@@ -165,7 +175,7 @@ export const config = {
   dnsServers: list("AUTH_DNS_SERVERS"),
   jwtSecret,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
-  cookieName: process.env.AUTH_COOKIE_NAME ?? "mv_auth",
+  cookieName: process.env.AUTH_COOKIE_NAME ?? "auth_session",
   cookieSecure,
   mongoServerSelectionTimeoutMs: Number(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS ?? 5000),
   pgConnectionTimeoutMs: Number(process.env.PG_CONNECTION_TIMEOUT_MS ?? 5000),

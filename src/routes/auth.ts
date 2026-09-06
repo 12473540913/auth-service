@@ -25,8 +25,10 @@ function getUserDisplayName(user: { username?: string; email: string }): string 
 function toSessionPayload(user: UserRecord) {
   return {
     authenticated: true,
+    userId: user.id,
     email: user.email,
     username: getUserDisplayName(user),
+    birthDate: user.birthDate ?? null,
     emailVerified: user.emailVerified,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
@@ -55,21 +57,24 @@ async function getVerificationTarget(req: AuthUserRequest): Promise<string | nul
   return email.includes("@") ? email : null;
 }
 
-function setAuthCookie(res: Response, token: string, sameSite: SameSite) {
+function setAuthCookie(res: Response, token: string, sameSite: SameSite, domain: string | undefined) {
   res.cookie(config.cookieName, token, {
     httpOnly: true,
     secure: config.cookieSecure,
     sameSite,
+    domain,
     path: "/",
     maxAge: 1000 * 60 * 60 * 24 * 7,
   });
 }
 
 function clearAuthCookie(req: Request, res: Response) {
+  const app = getTenantApp(req);
   res.clearCookie(config.cookieName, {
     httpOnly: true,
     secure: config.cookieSecure,
-    sameSite: getTenantApp(req).cookieSameSite,
+    sameSite: app.cookieSameSite,
+    domain: app.cookieDomain,
     path: "/",
   });
 }
@@ -87,7 +92,7 @@ function issueSession(req: Request, res: Response, user: UserRecord): { token?: 
 
   if (app.tokenMode === "bearer") return { token };
 
-  setAuthCookie(res, token, app.cookieSameSite);
+  setAuthCookie(res, token, app.cookieSameSite, app.cookieDomain);
   return {};
 }
 
@@ -209,10 +214,51 @@ authRouter.patch("/profile", authGuard, async (req, res) => {
     if (usernameTaken) return res.status(409).json({ ok: false, error: "Username already in use" });
   }
 
-  const updated = await getStore(req).users.update(user.id, { username: username || null });
+  let birthDate: string | null | undefined;
+  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, "birthDate")) {
+    const raw = String(req.body?.birthDate ?? "").trim();
+    if (raw && (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || new Date(raw) > new Date())) {
+      return res.status(400).json({ ok: false, error: "Invalid birth date" });
+    }
+    birthDate = raw || null;
+  }
+
+  const updated = await getStore(req).users.update(user.id, {
+    username: username || null,
+    ...(birthDate !== undefined ? { birthDate } : {}),
+  });
   if (!updated) return res.status(401).json({ ok: false, error: "Unauthorized" });
 
   return res.json({ ok: true, session: toSessionPayload(updated) });
+});
+
+authRouter.patch("/account/password", authGuard, async (req, res) => {
+  const userId = (req as AuthUserRequest).authUserId!;
+  const user = await getStore(req).users.findById(userId);
+  if (!user) return res.status(401).json({ ok: false, error: "Unauthorized" });
+
+  const password = String(req.body?.password ?? "");
+  if (!passwordValid(password)) {
+    return res.status(400).json({ ok: false, error: "Password must be 8+ chars and include lowercase, uppercase, and number" });
+  }
+
+  // Bumping authVersion invalidates every token issued before this change.
+  await getStore(req).users.update(user.id, {
+    passwordHash: await hashPassword(password),
+    authVersion: user.authVersion + 1,
+  });
+
+  const refreshed = await getStore(req).users.findById(user.id);
+  clearAuthCookie(req, res);
+  const session = issueSession(req, res, refreshed!);
+  return res.json({ ok: true, ...session });
+});
+
+authRouter.delete("/account", authGuard, async (req, res) => {
+  const userId = (req as AuthUserRequest).authUserId!;
+  await getStore(req).users.deleteUser(userId);
+  clearAuthCookie(req, res);
+  return res.json({ ok: true });
 });
 
 // Domain feature, not auth: only mounted for apps that opt in via AUTH_FEATURES_<APP>.

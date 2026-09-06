@@ -24,6 +24,7 @@ function toUser(doc: WithId<UserDoc> | null): UserRecord | null {
     id: String(doc._id),
     email: doc.email,
     username: doc.username,
+    birthDate: doc.birthDate,
     passwordHash: doc.passwordHash,
     emailVerified: doc.emailVerified,
     verifyOtpHash: doc.verifyOtpHash,
@@ -163,6 +164,15 @@ export async function createMongoStore(options: MongoStoreOptions): Promise<Tena
         const update = toUpdate(patch);
         if (!Object.keys(update).length) return toUser(await Users.findById(id).lean());
         return toUser(await Users.findByIdAndUpdate(id, update, { new: true }).lean());
+      },
+      async deleteUser(id) {
+        if (!isValidId(id)) return;
+        await Promise.all([
+          Users.deleteOne({ _id: id }),
+          Blobs.deleteMany({ userId: id }),
+          Settings.deleteMany({ userId: id }),
+          Entries?.deleteMany({ userId: id }),
+        ]);
       },
     },
 

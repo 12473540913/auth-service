@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   email                 text NOT NULL,
   username              text,
+  birth_date            date,
   password_hash         text NOT NULL,
   email_verified        boolean NOT NULL DEFAULT false,
   verify_otp_hash       text,
@@ -57,6 +58,7 @@ type UserRow = {
   id: string;
   email: string;
   username: string | null;
+  birth_date: string | null;
   password_hash: string;
   email_verified: boolean;
   verify_otp_hash: string | null;
@@ -74,6 +76,7 @@ function toUser(row: UserRow | undefined): UserRecord | null {
     id: row.id,
     email: row.email,
     username: row.username ?? undefined,
+    birthDate: row.birth_date ?? undefined,
     passwordHash: row.password_hash,
     emailVerified: row.email_verified,
     verifyOtpHash: row.verify_otp_hash ?? undefined,
@@ -90,6 +93,7 @@ function toUser(row: UserRow | undefined): UserRecord | null {
 // through this table, and every value is passed as a bound parameter.
 const USER_COLUMNS: Record<keyof UserPatch, string> = {
   username: "username",
+  birthDate: "birth_date",
   passwordHash: "password_hash",
   emailVerified: "email_verified",
   verifyOtpHash: "verify_otp_hash",
@@ -219,6 +223,11 @@ export async function createPostgresStore(options: PostgresStoreOptions): Promis
             values,
           ),
         );
+      },
+      async deleteUser(id) {
+        if (!isValidId(id)) return;
+        // user_app_blobs and user_app_settings reference users(id) ON DELETE CASCADE.
+        await pool.query("DELETE FROM users WHERE id = $1", [id]);
       },
     },
 
