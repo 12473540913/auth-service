@@ -18,16 +18,12 @@ type AuthUserRequest = Request & {
   authTokenVersion?: number;
 };
 
-function getUserDisplayName(user: { username?: string; email: string }): string {
-  return user.username?.trim() || user.email;
-}
-
 function toSessionPayload(user: UserRecord) {
   return {
     authenticated: true,
     userId: user.id,
     email: user.email,
-    username: getUserDisplayName(user),
+    username: user.username?.trim() || null,
     birthDate: user.birthDate ?? null,
     emailVerified: user.emailVerified,
     createdAt: user.createdAt.toISOString(),
@@ -157,7 +153,7 @@ authRouter.post("/signup", async (req, res) => {
 
   await sendVerifyEmail(email, rawCode, getTenantApp(req).displayName);
 
-  return res.json({ ok: true, user: { email: user.email, username: getUserDisplayName(user), emailVerified: user.emailVerified } });
+  return res.json({ ok: true, user: { email: user.email, username: user.username?.trim() || null, emailVerified: user.emailVerified } });
 });
 
 authRouter.post("/signin", async (req, res) => {
@@ -179,7 +175,7 @@ authRouter.post("/signin", async (req, res) => {
   return res.json({
     ok: true,
     ...session,
-    user: { email: user.email, username: getUserDisplayName(user), emailVerified: user.emailVerified },
+    user: { email: user.email, username: user.username?.trim() || null, emailVerified: user.emailVerified },
   });
 });
 
