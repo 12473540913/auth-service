@@ -25,6 +25,7 @@ function toUser(doc: WithId<UserDoc> | null): UserRecord | null {
     email: doc.email,
     username: doc.username,
     birthDate: doc.birthDate,
+    profilePhotoUrl: doc.profilePhotoUrl,
     passwordHash: doc.passwordHash,
     emailVerified: doc.emailVerified,
     verifyOtpHash: doc.verifyOtpHash,

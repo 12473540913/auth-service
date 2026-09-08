@@ -67,7 +67,17 @@ function start() {
 
   app.use("/auth", tenantResolver, authRouter);
 
-  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  app.use((err: Error & { status?: number; statusCode?: number; type?: string }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    // body-parser reports oversized/malformed bodies as regular errors with a status;
+    // surface those as their real status instead of a generic 500.
+    if (err.type === "entity.too.large") {
+      return res.status(413).json({ ok: false, error: "Request body is too large" });
+    }
+    const status = err.status ?? err.statusCode;
+    if (status && status >= 400 && status < 500) {
+      return res.status(status).json({ ok: false, error: "Invalid request" });
+    }
+
     console.error("[auth-service] unhandled error", err);
     res.status(500).json({ ok: false, error: "Internal server error" });
   });

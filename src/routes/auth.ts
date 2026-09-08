@@ -25,6 +25,7 @@ function toSessionPayload(user: UserRecord) {
     email: user.email,
     username: user.username?.trim() || null,
     birthDate: user.birthDate ?? null,
+    profilePhotoUrl: user.profilePhotoUrl ?? null,
     emailVerified: user.emailVerified,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
@@ -219,9 +220,20 @@ authRouter.patch("/profile", authGuard, async (req, res) => {
     birthDate = raw || null;
   }
 
+  // Data-URL photos can be large; cap well under the 1mb JSON body limit so the error is friendly.
+  let profilePhotoUrl: string | null | undefined;
+  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, "profilePhotoUrl")) {
+    const raw = String(req.body?.profilePhotoUrl ?? "").trim();
+    if (raw.length > 700_000) {
+      return res.status(400).json({ ok: false, error: "Profile photo is too large" });
+    }
+    profilePhotoUrl = raw || null;
+  }
+
   const updated = await getStore(req).users.update(user.id, {
     username: username || null,
     ...(birthDate !== undefined ? { birthDate } : {}),
+    ...(profilePhotoUrl !== undefined ? { profilePhotoUrl } : {}),
   });
   if (!updated) return res.status(401).json({ ok: false, error: "Unauthorized" });
 

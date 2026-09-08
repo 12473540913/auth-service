@@ -9,6 +9,8 @@ export type UserRecord = {
   username?: string;
   /** Plain YYYY-MM-DD, generic across every app rather than a per-app profile field. */
   birthDate?: string;
+  /** Data URL or hosted image URL; generic across every app. */
+  profilePhotoUrl?: string;
   passwordHash: string;
   emailVerified: boolean;
   verifyOtpHash?: string;
@@ -33,6 +35,7 @@ export type NewUser = {
 export type UserPatch = {
   username?: string | null;
   birthDate?: string | null;
+  profilePhotoUrl?: string | null;
   passwordHash?: string;
   emailVerified?: boolean;
   verifyOtpHash?: string | null;

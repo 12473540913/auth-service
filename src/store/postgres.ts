@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
   email                 text NOT NULL,
   username              text,
   birth_date            date,
+  profile_photo_url     text,
   password_hash         text NOT NULL,
   email_verified        boolean NOT NULL DEFAULT false,
   verify_otp_hash       text,
@@ -29,6 +30,10 @@ CREATE TABLE IF NOT EXISTS users (
   created_at            timestamptz NOT NULL DEFAULT now(),
   updated_at            timestamptz NOT NULL DEFAULT now()
 );
+
+-- CREATE TABLE IF NOT EXISTS above only helps on a brand-new database; existing
+-- deployments need the column added explicitly, so this runs (idempotently) every boot.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_photo_url text;
 
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_key ON users (email);
 CREATE UNIQUE INDEX IF NOT EXISTS users_username_key ON users (username) WHERE username IS NOT NULL;
@@ -59,6 +64,7 @@ type UserRow = {
   email: string;
   username: string | null;
   birth_date: string | null;
+  profile_photo_url: string | null;
   password_hash: string;
   email_verified: boolean;
   verify_otp_hash: string | null;
@@ -70,13 +76,24 @@ type UserRow = {
   updated_at: Date;
 };
 
+// node-postgres parses `date` columns into JS Date objects at runtime (despite the
+// string type declared above), which JSON.stringify then shifts to a full ISO datetime
+// in local time (e.g. "1999-01-02" -> "1999-01-01T05:00:00.000Z"). Normalize back to a
+// plain YYYY-MM-DD before it ever leaves the store.
+function formatDateOnly(value: unknown): string | undefined {
+  if (!value) return undefined;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
+}
+
 function toUser(row: UserRow | undefined): UserRecord | null {
   if (!row) return null;
   return {
     id: row.id,
     email: row.email,
     username: row.username ?? undefined,
-    birthDate: row.birth_date ?? undefined,
+    birthDate: formatDateOnly(row.birth_date),
+    profilePhotoUrl: row.profile_photo_url ?? undefined,
     passwordHash: row.password_hash,
     emailVerified: row.email_verified,
     verifyOtpHash: row.verify_otp_hash ?? undefined,
@@ -94,6 +111,7 @@ function toUser(row: UserRow | undefined): UserRecord | null {
 const USER_COLUMNS: Record<keyof UserPatch, string> = {
   username: "username",
   birthDate: "birth_date",
+  profilePhotoUrl: "profile_photo_url",
   passwordHash: "password_hash",
   emailVerified: "email_verified",
   verifyOtpHash: "verify_otp_hash",
