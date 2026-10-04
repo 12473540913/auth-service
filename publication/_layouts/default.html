@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="{{ page.description | default: site.description | escape }}">
+    <title>{{ page.title | default: site.title | escape }}</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        color: #1e293b;
+        background: #f8fafc;
+        font-synthesis: none;
+        text-rendering: optimizeLegibility;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        line-height: 1.7;
+      }
+
+      .masthead {
+        padding: 4.5rem 1.25rem 3.5rem;
+        color: #f8fafc;
+        background: #10243a;
+      }
+
+      .masthead-inner, main, footer {
+        width: min(100% - 2.5rem, 48rem);
+        margin-inline: auto;
+      }
+
+      .eyebrow {
+        margin: 0 0 1rem;
+        color: #93c5fd;
+        font-size: .8rem;
+        font-weight: 700;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+      }
+
+      .masthead h1 {
+        max-width: 42rem;
+        margin: 0;
+        font-size: clamp(2rem, 6vw, 3.5rem);
+        line-height: 1.12;
+        letter-spacing: -.035em;
+      }
+
+      .dek {
+        max-width: 39rem;
+        margin: 1.25rem 0 0;
+        color: #cbd5e1;
+        font-size: 1.15rem;
+      }
+
+      main {
+        margin-block: 3rem 5rem;
+        padding: clamp(1.25rem, 5vw, 3.25rem);
+        border: 1px solid #e2e8f0;
+        border-radius: 1rem;
+        background: #fff;
+        box-shadow: 0 1rem 3rem rgb(15 23 42 / 5%);
+      }
+
+      main h1 { display: none; }
+
+      main h2 {
+        margin: 2.5rem 0 .75rem;
+        color: #10243a;
+        font-size: 1.55rem;
+        line-height: 1.3;
+      }
+
+      main h3 {
+        margin: 2rem 0 .5rem;
+        color: #1e3a5f;
+        font-size: 1.15rem;
+      }
+
+      main h2:first-of-type { margin-top: 0; }
+      main p, main ul { margin-block: .85rem; }
+      main li + li { margin-top: .4rem; }
+
+      main a {
+        color: #075985;
+        text-decoration-thickness: .08em;
+        text-underline-offset: .18em;
+      }
+
+      main a:hover { color: #0c4a6e; }
+
+      main :focus-visible {
+        outline: 3px solid #0284c7;
+        outline-offset: 3px;
+      }
+
+      main code {
+        padding: .12em .32em;
+        border-radius: .25rem;
+        background: #f1f5f9;
+        font-size: .9em;
+      }
+
+      footer {
+        padding-bottom: 2rem;
+        color: #64748b;
+        font-size: .9rem;
+      }
+
+      footer a { color: inherit; }
+
+      @media (max-width: 36rem) {
+        .masthead { padding-block: 3.25rem 2.75rem; }
+        main { margin-block: 1.25rem 3rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="masthead">
+      <div class="masthead-inner">
+        <p class="eyebrow">Technical note</p>
+        <h1>{{ page.title | escape }}</h1>
+        <p class="dek">{{ page.description | escape }}</p>
+      </div>
+    </header>
+    <main id="content">
+      {{ content }}
+    </main>
+    <footer>
+      <a href="https://github.com/1247350913/auth-service">View the implementation on GitHub</a>
+    </footer>
+  </body>
+</html>
