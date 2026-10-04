@@ -4,7 +4,7 @@ title: "A Shared Auth Service Without a Shared Data Model"
 description: "Tenant routing, storage adapters, and opaque encrypted state in a multi-application auth service."
 ---
 
-# A Shared Auth Service Without a Shared Data Model
+# A Shared Authentication Service Without a Shared Data Model
 
 ## Tenant routing, storage adapters, and opaque encrypted state
 
