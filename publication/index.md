@@ -211,4 +211,4 @@ must all be the same.
 - [App configuration and startup validation](https://github.com/1247350913/auth-service/blob/main/src/config.ts)
 - [Storage contracts](https://github.com/1247350913/auth-service/blob/main/src/store/types.ts)
 - [Authentication and account routes](https://github.com/1247350913/auth-service/blob/main/src/routes/auth.ts)
-- [Service README](https://github.com/1247350913/auth-service/blob/main/README.md)
+- [Repository](https://github.com/1247350913/auth-service)

@@ -69,7 +69,6 @@
 
       .byline a {
         color: #f8fafc;
-        font-weight: 600;
         text-decoration: none;
       }
 
@@ -144,7 +143,7 @@
         <h1>{{ page.title | escape }}</h1>
         <p class="dek">{{ page.description | escape }}</p>
         <p class="byline">
-          <a href="{{ page.author_url | escape }}">{{ page.author | escape }}</a>
+          <a href="{{ page.author_url | escape }}" target="_blank" rel="noopener noreferrer">{{ page.author | escape }}</a>
           <span aria-hidden="true">·</span>
           <time datetime="{{ page.published | date: '%Y-%m-%d' }}">{{ page.published | date: "%B %-d, %Y" }}</time>
           <span aria-hidden="true">·</span>
