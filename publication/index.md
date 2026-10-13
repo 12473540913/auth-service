@@ -1,10 +1,12 @@
 ---
 layout: default
-title: "A Shared Auth Service Without a Shared Data Model"
+title: "A Shared Authentication Service Without a Shared Data Model"
 description: "Tenant routing, storage adapters, and opaque encrypted state in a multi-application auth service."
+author: "Hirsh, Cameron"
+author_url: "https://cjh.lnks.info"
+published: "October 13, 2026"
+reading_time: "12 min read"
 ---
-
-# A Shared Authentication Service Without a Shared Data Model
 
 ## Tenant routing, storage adapters, and opaque encrypted state
 

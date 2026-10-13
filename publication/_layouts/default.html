@@ -57,6 +57,24 @@
         font-size: 1.15rem;
       }
 
+      .byline {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: .5rem;
+        margin: 1.25rem 0 0;
+        color: #94a3b8;
+        font-size: .9rem;
+      }
+
+      .byline a {
+        color: #f8fafc;
+        font-weight: 600;
+        text-decoration: none;
+      }
+
+      .byline a:hover { text-decoration: underline; }
+
       main {
         margin-block: 3rem 5rem;
         padding: clamp(1.25rem, 5vw, 3.25rem);
@@ -125,6 +143,13 @@
         <p class="eyebrow">Technical note</p>
         <h1>{{ page.title | escape }}</h1>
         <p class="dek">{{ page.description | escape }}</p>
+        <p class="byline">
+          <a href="{{ page.author_url | escape }}">{{ page.author | escape }}</a>
+          <span aria-hidden="true">·</span>
+          <time datetime="{{ page.published | date: '%Y-%m-%d' }}">{{ page.published | date: "%B %-d, %Y" }}</time>
+          <span aria-hidden="true">·</span>
+          <span>{{ page.reading_time | escape }}</span>
+        </p>
       </div>
     </header>
     <main id="content">
