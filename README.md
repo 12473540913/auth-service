@@ -37,6 +37,7 @@ configurations fail at startup rather than surfacing as runtime errors.
 - `POST /auth/signin`
 - `POST /auth/signout`
 - `GET /auth/session`
+- `PATCH /auth/account/password`
 - `POST /auth/verify/request`
 - `GET /auth/verify/confirm`
 - `POST /auth/password-reset/request`
@@ -99,6 +100,32 @@ Native clients that do not have a usable browser cookie jar can use `bearer` mod
 - Configure allowed browser origins as appropriate for the client architecture.
 
 Web apps stay on cookies and must use `credentials: "include"`.
+
+### Signup verification retries
+
+Submitting `POST /auth/signup` again for an existing unverified email sends a
+fresh verification code with a new 30-minute expiry and returns the usual signup
+success response. It does not create another user or replace the account's
+password, username, or session version. The supplied signup fields must still pass
+validation. Verified emails continue to return `409 Email already in use`.
+Sign-in still returns `403 Verify your email before signing in` for unverified
+users and does not send a code.
+
+Run the signup retry regression tests with
+`node --experimental-test-module-mocks --import tsx --test test/signup-verification.test.mjs`.
+These tests mock email delivery and do not connect to a database.
+
+### Signed-in password changes
+
+`PATCH /auth/account/password` requires an authenticated session and
+`{ currentPassword, password }`. The service verifies the current password before
+hashing and saving the new password. New passwords must have at least 8 characters,
+including lowercase, uppercase, and a number. Confirmation is a client-side typo check.
+
+Success invalidates other sessions and issues a replacement session for the caller:
+an HttpOnly cookie in cookie mode, or `{ ok: true, token }` in bearer mode. Bearer
+clients must replace their stored token with the returned token before further requests.
+Email-code password recovery remains a separate flow for clients' sign-in pages.
 
 ## Run locally
 

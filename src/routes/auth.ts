@@ -44,6 +44,16 @@ function hashOtpCode(rawCode: string): string {
   return createHash("sha256").update(rawCode).digest("hex");
 }
 
+async function resendVerificationCode(req: Request, user: UserRecord): Promise<void> {
+  const { rawCode, hashedCode } = makeOtpCode();
+  const updated = await getStore(req).users.update(user.id, {
+    verifyOtpHash: hashedCode,
+    verifyOtpExpiresAt: new Date(Date.now() + 1000 * 60 * 30),
+  });
+  if (!updated) throw new Error("User no longer exists while requesting verification");
+  await sendVerifyEmail(user.email, rawCode, getTenantApp(req).displayName);
+}
+
 async function getVerificationTarget(req: AuthUserRequest): Promise<string | null> {
   if (req.authUserId) {
     const user = await getStore(req).users.findById(req.authUserId);
@@ -132,7 +142,11 @@ authRouter.post("/signup", async (req, res) => {
   if (username && username.length < 3) return res.status(400).json({ ok: false, error: "Username must be at least 3 chars" });
 
   const existing = await getStore(req).users.findByEmail(email);
-  if (existing) return res.status(409).json({ ok: false, error: "Email already in use" });
+  if (existing) {
+    if (existing.emailVerified) return res.status(409).json({ ok: false, error: "Email already in use" });
+    await resendVerificationCode(req, existing);
+    return res.json({ ok: true, user: { email: existing.email, username: existing.username?.trim() || null, emailVerified: false } });
+  }
 
   if (username) {
     const usernameTaken = await getStore(req).users.findByUsername(username);
@@ -245,20 +259,28 @@ authRouter.patch("/account/password", authGuard, async (req, res) => {
   const user = await getStore(req).users.findById(userId);
   if (!user) return res.status(401).json({ ok: false, error: "Unauthorized" });
 
+  const currentPassword = req.body?.currentPassword;
+  if (typeof currentPassword !== "string" || !currentPassword) {
+    return res.status(400).json({ ok: false, error: "Current password is required" });
+  }
+  if (!await verifyPassword(currentPassword, user.passwordHash)) {
+    return res.status(403).json({ ok: false, error: "Current password is incorrect" });
+  }
+
   const password = String(req.body?.password ?? "");
   if (!passwordValid(password)) {
     return res.status(400).json({ ok: false, error: "Password must be 8+ chars and include lowercase, uppercase, and number" });
   }
 
   // Bumping authVersion invalidates every token issued before this change.
-  await getStore(req).users.update(user.id, {
+  const updated = await getStore(req).users.update(user.id, {
     passwordHash: await hashPassword(password),
     authVersion: user.authVersion + 1,
   });
+  if (!updated) return res.status(401).json({ ok: false, error: "Unauthorized" });
 
-  const refreshed = await getStore(req).users.findById(user.id);
   clearAuthCookie(req, res);
-  const session = issueSession(req, res, refreshed!);
+  const session = issueSession(req, res, updated);
   return res.json({ ok: true, ...session });
 });
 
@@ -284,13 +306,7 @@ authRouter.post("/verify/request", async (req, res) => {
   const user = await getStore(req).users.findByEmail(email);
   if (!user) return res.json({ ok: true });
 
-  const { rawCode, hashedCode } = makeOtpCode();
-  await getStore(req).users.update(user.id, {
-    verifyOtpHash: hashedCode,
-    verifyOtpExpiresAt: new Date(Date.now() + 1000 * 60 * 30),
-  });
-
-  await sendVerifyEmail(user.email, rawCode, getTenantApp(req).displayName);
+  await resendVerificationCode(req, user);
 
   return res.json({ ok: true });
 });
